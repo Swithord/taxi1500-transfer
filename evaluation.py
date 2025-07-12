@@ -6,6 +6,7 @@ import os
 import pandas as pd
 import warnings
 from tqdm import tqdm
+from argparse import ArgumentParser
 
 TRANSFER_LANGUAGES = ['eng', 'spa', 'deu', 'jpn', 'fra', 'cmn', 'ukr', 'ceb', 'arz', 'ind', 'heb', 'zlm', 'tha', 'dan', 'tgl', 'tam', 'ron', 'ben', 'urd', 'swe', 'hin', 'por', 'ces', 'rus', 'nld', 'pol', 'hrv', 'ita', 'vie', 'eus', 'hun', 'fin', 'srp']
 
@@ -49,7 +50,11 @@ def evaluate_model(dataset: DatasetDict, model: BertForSequenceClassification, t
 
 
 def main():
-    warnings.filterwarnings("ignore", message=".*pin_memory.*")
+    parser = ArgumentParser(description="Evaluate multilingual BERT models on various languages.")
+    parser.add_argument('--transfer_language', type=str, choices=TRANSFER_LANGUAGES, default='eng',
+                        help="Language to transfer knowledge from (default: 'eng').")
+    args = parser.parse_args()
+
     languages = set()
     for file in os.listdir('data'):
         languages.add(file.split('_')[0])
@@ -63,39 +68,27 @@ def main():
 
     labels = {'Recommendation': 0, 'Faith': 1, 'Description': 2, 'Sin': 3, 'Grace': 4, 'Violence': 5}
     tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
-
-    models = {}
-    for transfer_lang in TRANSFER_LANGUAGES:
-        model_path = f'models/{transfer_lang}'
-        if not os.path.exists(model_path):
-            print(f"Model for {transfer_lang} not found, skipping.")
-            continue
-        models[transfer_lang] = BertForSequenceClassification.from_pretrained(model_path, num_labels=len(labels))
+    model = BertForSequenceClassification.from_pretrained(f'models/{args.transfer_language}', num_labels=len(labels))
 
     test_datasets = {}
     for task_lang in languages:
         test_datasets[task_lang] = preprocess_data(task_lang, labels, {'test'})
 
     for task_lang in tqdm(languages):
-        for transfer_lang in TRANSFER_LANGUAGES:
-            if task_lang not in test_datasets or transfer_lang not in models:
-                print(f"Skipping evaluation for {task_lang} with transfer from {transfer_lang}.")
-                continue
-
-            transfer_results = evaluate_model(
-                dataset=test_datasets[task_lang],
-                model=models[transfer_lang],
-                tokenizer=tokenizer,
-                task_lang=task_lang,
-                transfer_lang=transfer_lang
-            )
-            results['task_lang'].append(task_lang)
-            results['transfer_lang'].append(transfer_lang)
-            results['accuracy'].append(transfer_results['accuracy'])
-            results['f1_score'].append(transfer_results['f1_score'])
+        transfer_results = evaluate_model(
+            dataset=test_datasets[task_lang],
+            model=model,
+            tokenizer=tokenizer,
+            task_lang=task_lang,
+            transfer_lang=args.transfer_language
+        )
+        results['task_lang'].append(task_lang)
+        results['transfer_lang'].append(args.transfer_language)
+        results['accuracy'].append(transfer_results['accuracy'])
+        results['f1_score'].append(transfer_results['f1_score'])
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv('evaluation_results.csv', index=False)
+    df_results.to_csv(f'evaluation_results_{args.transfer_language}.csv', index=False)
 
 
 if __name__ == "__main__":
