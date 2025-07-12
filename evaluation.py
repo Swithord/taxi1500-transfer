@@ -1,3 +1,4 @@
+from datasets import DatasetDict
 from transformers import BertForSequenceClassification, BertTokenizer, Trainer
 from utils import preprocess_data
 import evaluate
@@ -9,27 +10,20 @@ from tqdm import tqdm
 TRANSFER_LANGUAGES = ['eng', 'spa', 'deu', 'jpn', 'fra', 'cmn', 'ukr', 'ceb', 'arz', 'ind', 'heb', 'zlm', 'tha', 'dan', 'tgl', 'tam', 'ron', 'ben', 'urd', 'swe', 'hin', 'por', 'ces', 'rus', 'nld', 'pol', 'hrv', 'ita', 'vie', 'eus', 'hun', 'fin', 'srp']
 
 
-def evaluate_model(task_lang: str, transfer_lang: str = '') -> dict:
+def evaluate_model(dataset: DatasetDict, model: BertForSequenceClassification, tokenizer: BertTokenizer, task_lang: str, transfer_lang: str):
     """
     Evaluate the model on a specific task language, optionally transferring from another language.
 
     Args:
-        task_lang (str): The language code for the task language.
-        transfer_lang (str): The language code for the transfer language (default is empty).
+        dataset (DatasetDict): Preprocessed dataset containing 'train', 'dev', and 'test' splits.
+        model (BertForSequenceClassification): Pretrained model for sequence classification.
+        tokenizer (BertTokenizer): Tokenizer for the model.
+        task_lang (str): Language of the task to evaluate.
+        transfer_lang (str): Language from which to transfer knowledge.
 
     Returns:
         dict: Evaluation results including accuracy and F1 score.
     """
-    labels = {'Recommendation': 0, 'Faith': 1, 'Description': 2, 'Sin': 3, 'Grace': 4, 'Violence': 5}
-    dataset = preprocess_data(task_lang, labels, {'test'})
-
-    if transfer_lang:
-        model = BertForSequenceClassification.from_pretrained(f'models/{transfer_lang}', num_labels=len(labels))
-        tokenizer = BertTokenizer.from_pretrained(f'models/{transfer_lang}')
-    else:
-        model = BertForSequenceClassification.from_pretrained("bert-base-multilingual-cased", num_labels=len(labels))
-        tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
-
     def tokenize_function(examples):
         return tokenizer(examples['text'], padding='max_length', truncation=True, max_length=128)
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
@@ -67,9 +61,34 @@ def main():
         'f1_score': []
     }
 
+    labels = {'Recommendation': 0, 'Faith': 1, 'Description': 2, 'Sin': 3, 'Grace': 4, 'Violence': 5}
+    tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
+
+    models = {}
+    for transfer_lang in TRANSFER_LANGUAGES:
+        model_path = f'models/{transfer_lang}'
+        if not os.path.exists(model_path):
+            print(f"Model for {transfer_lang} not found, skipping.")
+            continue
+        models[transfer_lang] = BertForSequenceClassification.from_pretrained(model_path, num_labels=len(labels))
+
+    test_datasets = {}
+    for task_lang in languages:
+        test_datasets[task_lang] = preprocess_data(task_lang, labels, {'test'})
+
     for task_lang in tqdm(languages):
         for transfer_lang in TRANSFER_LANGUAGES:
-            transfer_results = evaluate_model(task_lang, transfer_lang)
+            if task_lang not in test_datasets or transfer_lang not in models:
+                print(f"Skipping evaluation for {task_lang} with transfer from {transfer_lang}.")
+                continue
+
+            transfer_results = evaluate_model(
+                dataset=test_datasets[task_lang],
+                model=models[transfer_lang],
+                tokenizer=tokenizer,
+                task_lang=task_lang,
+                transfer_lang=transfer_lang
+            )
             results['task_lang'].append(task_lang)
             results['transfer_lang'].append(transfer_lang)
             results['accuracy'].append(transfer_results['accuracy'])
