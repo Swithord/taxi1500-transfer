@@ -1,14 +1,11 @@
 from datasets import DatasetDict
-from torch.utils.data import DataLoader
-from transformers import BertForSequenceClassification, BertTokenizer, Trainer, DataCollatorWithPadding, \
-    default_data_collator
+from transformers import BertForSequenceClassification, BertTokenizer, Trainer
 from utils import preprocess_data
 import evaluate
 import os
 import pandas as pd
 import warnings
 from tqdm import tqdm
-import torch
 
 TRANSFER_LANGUAGES = ['eng', 'spa', 'deu', 'jpn', 'fra', 'cmn', 'ukr', 'ceb', 'arz', 'ind', 'heb', 'zlm', 'tha', 'dan', 'tgl', 'tam', 'ron', 'ben', 'urd', 'swe', 'hin', 'por', 'ces', 'rus', 'nld', 'pol', 'hrv', 'ita', 'vie', 'eus', 'hun', 'fin', 'srp']
 
@@ -27,38 +24,22 @@ def evaluate_model(dataset: DatasetDict, model: BertForSequenceClassification, t
     Returns:
         dict: Evaluation results including accuracy and F1 score.
     """
-    model.eval()
-    model.to("cuda")
-
-    def tokenize_function(example):
-        return tokenizer(example['text'], padding='max_length', truncation=True, max_length=128)
-
+    def tokenize_function(examples):
+        return tokenizer(examples['text'], padding='max_length', truncation=True, max_length=128)
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
-    tokenized_datasets.set_format(type='torch', columns=['input_ids', 'attention_mask', 'label'])
 
-    dataloader = DataLoader(
-        tokenized_datasets['test'],
-        batch_size=32,
-        collate_fn=default_data_collator,
-        pin_memory=True
+    trainer = Trainer(
+        model=model,
+        processing_class=tokenizer,
     )
+    predictions = trainer.predict(tokenized_datasets['test'])
+    preds = predictions.predictions.argmax(axis=-1)
+    labels = tokenized_datasets['test']['label']
 
-    preds = []
-    labels = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            batch = {k: v.to("cuda") for k, v in batch.items()}
-            outputs = model(**batch)
-            logits = outputs.logits
-            preds.extend(torch.argmax(logits, dim=-1).cpu().tolist())
-            labels.extend(batch['labels'].cpu().tolist())
-
-    accuracy = evaluate.load("accuracy")
-    f1 = evaluate.load("f1")
+    accuracy = evaluate.load('accuracy')
+    f1 = evaluate.load('f1')
     acc = accuracy.compute(predictions=preds, references=labels)
     f1_score = f1.compute(predictions=preds, references=labels, average='weighted')
-
     print(task_lang, transfer_lang, acc, f1_score)
 
     return {
