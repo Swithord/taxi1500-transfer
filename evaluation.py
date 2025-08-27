@@ -52,7 +52,7 @@ def evaluate_model(dataset: DatasetDict, model: AutoModelForSequenceClassificati
 
 def main():
     parser = ArgumentParser(description="Evaluate multilingual BERT models on various languages.")
-    parser.add_argument('--transfer_language', type=str, choices=TRANSFER_LANGUAGES, default='eng',
+    parser.add_argument('--transfer_language', type=str, default='eng',
                         help="Language to transfer knowledge from (default: 'eng').")
     parser.add_argument('--dataset', type=str, choices=['taxi1500', 'sib200'], default='taxi1500',)
     args = parser.parse_args()
@@ -89,10 +89,12 @@ def main():
         test_datasets = {}
         for task_lang in languages:
             test_datasets[task_lang] = dataset = load_dataset('Davlan/sib200', task_lang, split='test')
-            def map_labels(example):
-                example['label'] = label2id[example['label']]
+
+            def encode_labels(example):
+                example["label"] = label2id[example["category"]]
                 return example
-            test_datasets[task_lang] = test_datasets[task_lang].map(map_labels)
+
+            test_datasets[task_lang] = test_datasets[task_lang].map(encode_labels, num_proc=4)
     else:
         raise ValueError("Unsupported dataset. Choose either 'taxi1500' or 'sib200'.")
 
