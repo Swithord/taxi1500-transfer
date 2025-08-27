@@ -1,5 +1,5 @@
-from datasets import DatasetDict
-from transformers import BertForSequenceClassification, BertTokenizer, Trainer
+from datasets import DatasetDict, load_dataset
+from transformers import BertForSequenceClassification, BertTokenizer, AutoModelForSequenceClassification, Trainer, AutoTokenizer
 from utils import preprocess_data
 import evaluate
 import os
@@ -11,7 +11,7 @@ from argparse import ArgumentParser
 TRANSFER_LANGUAGES = ['eng', 'spa', 'deu', 'jpn', 'fra', 'cmn', 'ukr', 'ceb', 'arz', 'ind', 'heb', 'zlm', 'tha', 'dan', 'tgl', 'tam', 'ron', 'ben', 'urd', 'swe', 'hin', 'por', 'ces', 'rus', 'nld', 'pol', 'hrv', 'ita', 'vie', 'eus', 'hun', 'fin', 'srp']
 
 
-def evaluate_model(dataset: DatasetDict, model: BertForSequenceClassification, tokenizer: BertTokenizer, task_lang: str, transfer_lang: str):
+def evaluate_model(dataset: DatasetDict, model: AutoModelForSequenceClassification, tokenizer: AutoTokenizer, task_lang: str, transfer_lang: str):
     """
     Evaluate the model on a specific task language, optionally transferring from another language.
 
@@ -27,6 +27,7 @@ def evaluate_model(dataset: DatasetDict, model: BertForSequenceClassification, t
     """
     def tokenize_function(examples):
         return tokenizer(examples['text'], padding='max_length', truncation=True, max_length=128)
+
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
 
     trainer = Trainer(
@@ -53,11 +54,8 @@ def main():
     parser = ArgumentParser(description="Evaluate multilingual BERT models on various languages.")
     parser.add_argument('--transfer_language', type=str, choices=TRANSFER_LANGUAGES, default='eng',
                         help="Language to transfer knowledge from (default: 'eng').")
+    parser.add_argument('--dataset', type=str, choices=['taxi1500', 'sib200'], default='taxi1500',)
     args = parser.parse_args()
-
-    languages = set()
-    for file in os.listdir('data'):
-        languages.add(file.split('_')[0])
 
     results = {
         'task_lang': [],
@@ -66,13 +64,37 @@ def main():
         'f1_score': []
     }
 
-    labels = {'Recommendation': 0, 'Faith': 1, 'Description': 2, 'Sin': 3, 'Grace': 4, 'Violence': 5}
-    tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
-    model = BertForSequenceClassification.from_pretrained(f'models/{args.transfer_language}', num_labels=len(labels))
+    languages = set()
 
-    test_datasets = {}
-    for task_lang in languages:
-        test_datasets[task_lang] = preprocess_data(task_lang, labels, {'test'})
+    if args.dataset == 'taxi1500':
+        for file in os.listdir('data'):
+            languages.add(file.split('_')[0])
+
+        labels = {'Recommendation': 0, 'Faith': 1, 'Description': 2, 'Sin': 3, 'Grace': 4, 'Violence': 5}
+        tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
+        model = AutoModelForSequenceClassification.from_pretrained(f'models/{args.transfer_language}', num_labels=len(labels))
+
+        test_datasets = {}
+        for task_lang in languages:
+            test_datasets[task_lang] = preprocess_data(task_lang, labels, {'test'})
+    elif args.dataset == 'sib200':
+        for file in os.listdir('models'):
+            languages.add(file)
+
+        labels = {'science/technology', 'travel', 'politics', 'sports', 'health', 'entertainment', 'geography'}
+        label2id = {label: idx for idx, label in enumerate(labels)}
+        model = AutoModelForSequenceClassification.from_pretrained(f'models/{args.transfer_language}', num_labels=len(labels))
+        tokenizer = AutoTokenizer.from_pretrained(f'models/{args.transfer_language}')
+
+        test_datasets = {}
+        for task_lang in languages:
+            test_datasets[task_lang] = dataset = load_dataset('Davlan/sib200', task_lang, split='test')
+            def map_labels(example):
+                example['label'] = label2id[example['label']]
+                return example
+            test_datasets[task_lang] = test_datasets[task_lang].map(map_labels)
+    else:
+        raise ValueError("Unsupported dataset. Choose either 'taxi1500' or 'sib200'.")
 
     for task_lang in tqdm(languages):
         transfer_results = evaluate_model(
@@ -88,7 +110,7 @@ def main():
         results['f1_score'].append(transfer_results['f1_score'])
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv(f'evaluation_results_{args.transfer_language}.csv', index=False)
+    df_results.to_csv(f'results/evaluation_results_{args.transfer_language}.csv', index=False)
 
 
 if __name__ == "__main__":
