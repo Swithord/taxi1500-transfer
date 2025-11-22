@@ -73,7 +73,7 @@ def finetune_taxi1500(language: str):
 
 
 def finetune_sib200(language: str):
-    labels = {'science/technology', 'travel', 'politics', 'sports', 'health', 'entertainment', 'geography'}
+    labels = ['science/technology', 'travel', 'politics', 'sports', 'health', 'entertainment', 'geography']
     label2id = {label: idx for idx, label in enumerate(labels)}
     id2label = {idx: label for label, idx in label2id.items()}
     dataset = load_dataset('Davlan/sib200', language)

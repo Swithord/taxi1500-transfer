@@ -1,4 +1,4 @@
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict, load_dataset, load_from_disk
 from transformers import BertForSequenceClassification, BertTokenizer, AutoModelForSequenceClassification, Trainer, AutoTokenizer
 from utils import preprocess_data
 import evaluate
@@ -41,7 +41,7 @@ def evaluate_model(dataset: DatasetDict, model: AutoModelForSequenceClassificati
     accuracy = evaluate.load('accuracy')
     f1 = evaluate.load('f1')
     acc = accuracy.compute(predictions=preds, references=labels)
-    f1_score = f1.compute(predictions=preds, references=labels, average='weighted')
+    f1_score = f1.compute(predictions=preds, references=labels, average='macro')
     print(task_lang, transfer_lang, acc, f1_score)
 
     return {
@@ -81,20 +81,20 @@ def main():
         for file in os.listdir('models'):
             languages.add(file)
 
-        labels = {'science/technology', 'travel', 'politics', 'sports', 'health', 'entertainment', 'geography'}
+        labels = ['science/technology', 'travel', 'politics', 'sports', 'health', 'entertainment', 'geography']
         label2id = {label: idx for idx, label in enumerate(labels)}
         model = AutoModelForSequenceClassification.from_pretrained(f'models/{args.transfer_language}', num_labels=len(labels))
         tokenizer = AutoTokenizer.from_pretrained(f'models/{args.transfer_language}')
 
         test_datasets = {}
         for task_lang in languages:
-            test_datasets[task_lang] = dataset = load_dataset('Davlan/sib200', task_lang, split='test')
+            test_datasets[task_lang] = load_from_disk(f'sib200/{task_lang}')['test']
 
             def encode_labels(example):
                 example["label"] = label2id[example["category"]]
                 return example
 
-            test_datasets[task_lang] = test_datasets[task_lang].map(encode_labels, num_proc=4)
+            test_datasets[task_lang] = DatasetDict({'test': test_datasets[task_lang].map(encode_labels, num_proc=4)})
     else:
         raise ValueError("Unsupported dataset. Choose either 'taxi1500' or 'sib200'.")
 
