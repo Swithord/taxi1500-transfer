@@ -12,6 +12,7 @@ import evaluate
 from argparse import ArgumentParser
 from datasets import load_dataset
 from utils import preprocess_data
+from peft import LoraConfig, get_peft_model
 
 TRANSFER_LANGUAGES = ['eng', 'spa', 'deu', 'jpn', 'fra', 'cmn', 'ukr', 'ceb', 'arz', 'ind', 'heb', 'zlm', 'tha', 'dan', 'tgl', 'tam', 'ron', 'ben', 'urd', 'swe', 'hin', 'por', 'ces', 'rus', 'nld', 'pol', 'hrv', 'ita', 'vie', 'eus', 'hun', 'fin', 'srp']
 
@@ -20,9 +21,28 @@ def finetune_taxi1500(language: str):
     labels_map = {label: idx for idx, label in enumerate(labels)}
     dataset = preprocess_data(language, labels_map, {'train', 'dev'})
 
-    model = BertForSequenceClassification.from_pretrained("bert-base-multilingual-cased",
-                                                          num_labels=len(labels))
-    tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
+    # model = BertForSequenceClassification.from_pretrained("bert-base-multilingual-cased",
+    #                                                       num_labels=len(labels))
+    model_name = "meta-llama/Llama-3.1-8B-Instruct"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.pad_token = tokenizer.eos_token
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        num_labels=len(labels),
+        device_map="auto",  # automatically place on GPU
+    )
+
+    lora_config = LoraConfig(
+        r=16,
+        lora_alpha=32,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        lora_dropout=0.05,
+        task_type="SEQ_CLS"
+    )
+
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
 
     def tokenize_function(examples):
         return tokenizer(examples['text'], padding='max_length', truncation=True, max_length=128)
