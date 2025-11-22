@@ -30,7 +30,7 @@ for (( i=$START_INDEX; i<$END_INDEX && i<$TOTAL_LANGS; i++ ))
 do
     LANG=${TRANSFER_LANGUAGES[$i]}
     echo "Running transfer language: $LANG"
-    python evaluation.py --transfer_lang "$LANG"
+    python trainer.py --dataset "taxi1500" --lang "$LANG"
 done
 
 
